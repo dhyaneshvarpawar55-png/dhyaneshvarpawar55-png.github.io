@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>PaisaTask</title>
+<style>
+:root{--bg:#EAF3F0;--card:#fff;--ink:#0F2A33;--mute:#5B7279;--gold:#F2B01E;--goldink:#3A2900;--line:#CFE0DB;
+box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root{--bg:#0B1A1F;--card:#13272E;--ink:#E6F2EF;--mute:#8FA8AE;--line:#24404A}}
+*{box-sizing:border-box}
+body{margin:0 auto;background:var(--bg);color:var(--ink);font-family:system-ui,sans-serif;max-width:480px;padding:16px 16px 40px}
+h1{font-size:20px;margin:4px 0 14px;font-weight:800;flex:1}
+h2{font-size:16px;margin:22px 0 10px}
+header{display:flex;align-items:center;gap:10px}
+button{font:inherit;font-weight:700;border:0;border-radius:10px;padding:10px 14px;cursor:pointer;background:var(--gold);color:var(--goldink)}
+button:disabled{background:var(--line);color:var(--mute);cursor:not-allowed}
+button.g{background:var(--card);color:var(--ink);border:1px solid var(--line)}
+input,select{width:100%;font:inherit;padding:11px;border-radius:10px;border:1px solid var(--line);background:var(--bg);color:var(--ink);margin:6px 0}
+.bal{background:var(--ink);color:var(--bg);border-radius:20px;padding:20px}
+.bal b{display:block;font-size:44px;font-weight:800;margin:4px 0;color:var(--gold)}
+.task,.wd{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:12px 14px;margin-bottom:10px}
+.task{display:flex;align-items:center;gap:12px}.task div{flex:1}.task p{margin:0;font-weight:700}
+small{color:var(--mute)}
+#login{text-align:center;margin-top:20vh}
+#login button{width:100%;padding:14px;margin-top:16px}
+#app{display:none}
+#modal{position:fixed;inset:0;background:rgba(5,15,18,.8);display:none;align-items:center;justify-content:center;padding:20px;z-index:9}
+#modal.on{display:flex}
+.box{background:var(--card);border-radius:18px;padding:18px;width:100%;max-width:400px;text-align:center}
+#ad-slot{min-height:200px;border:2px dashed var(--line);border-radius:12px;display:flex;align-items:center;justify-content:center;color:var(--mute);margin:12px 0}
+#toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:10px 16px;border-radius:30px;font-weight:700;font-size:14px;opacity:0;transition:opacity .25s;pointer-events:none;z-index:10}
+#toast.on{opacity:1}
+</style>
+</head>
+<body>
+<div id="login">
+  <h1 style="font-size:28px">PaisaTask</h1>
+  <small>Complete tasks, collect coins, withdraw to UPI.</small>
+  <button id="signin">Continue with Google</button>
+</div>
+
+<div id="app">
+  <header><h1 id="hello">PaisaTask</h1><button class="g" id="signout">Sign out</button></header>
+  <div class="bal"><small style="color:var(--bg);opacity:.7">Your balance</small><b id="coins">0</b><span id="rs"></span></div>
+  <h2>Tasks</h2><div id="tasks"></div>
+  <h2>Withdraw</h2>
+  <div class="wd">
+    <small>Minimum ₹50 (5,000 coins). 100 coins = ₹1.</small>
+    <select id="meth"><option>UPI</option><option>Paytm</option></select>
+    <input id="to" placeholder="UPI ID, e.g. name@upi" autocomplete="off">
+    <button id="wbtn" style="width:100%">Request withdrawal</button>
+  </div>
+</div>
+
+<div id="modal"><div class="box">
+  <b>Watch ad</b>
+  <!-- MONETAG: paste your Monetag ad tag inside #ad-slot -->
+  <div id="ad-slot">Ad appears here</div>
+  <button id="claim" disabled>Wait</button>
+</div></div>
+<div id="toast"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/firebase@10.12.2/firebase-app-compat.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/firebase@10.12.2/firebase-auth-compat.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/firebase@10.12.2/firebase-firestore-compat.js"></script>
+<script>
+firebase.initializeApp({
+  apiKey:"AIzaSyBD0b8ikf9yWH3vdjriufn8ItnXjY2eH14",
+  authDomain:"paisatask-d608e.firebaseapp.com",
+  projectId:"paisatask-d608e",
+  storageBucket:"paisatask-d608e.firebasestorage.app",
+  messagingSenderId:"90134169824",
+  appId:"1:90134169824:web:6135a85526dec90fe32885"
+});
+const auth=firebase.auth(),db=firebase.firestore(),inc=firebase.firestore.FieldValue.increment;
+const $=id=>document.getElementById(id);
+const MIN=5000,RATE=100;
+const TASKS=[
+ {id:'ad', name:'Watch an ad',     desc:'10 seconds', coins:20, cd:60,  ad:1},
+ {id:'ad2',name:'Watch a long ad', desc:'20 seconds', coins:50, cd:180, ad:1, secs:20},
+ {id:'chk',name:'Daily check-in',  desc:'Come back daily', coins:100, cd:72000}
+];
+let ref,U=null,user=null,adsOn=false;
+function loadAds(){
+  if(adsOn)return;adsOn=true;
+  const s=document.createElement('script');
+  s.dataset.zone='11957298';s.src='https://n6wxm.com/vignette.min.js';
+  document.body.appendChild(s);
+}
+
+function toast(m){const t=$('toast');t.textContent=m;t.classList.add('on');setTimeout(()=>t.classList.remove('on'),2200)}
+async function run(f){try{await f()}catch(e){toast(e.message||'Something went wrong')}}
+function left(t){return Math.max(0,Math.ceil((((U.last||{})[t.id]||0)+t.cd*1000-Date.now())/1000))}
+function fmt(s){return s>=3600?Math.ceil(s/3600)+'h':s>=60?Math.ceil(s/60)+'m':s+'s'}
+function mult(){const l=U.life||0;return l>=30000?1.3:l>=10000?1.2:l>=2000?1.1:1}
+
+$('signin').onclick=()=>run(()=>auth.signInWithPopup(new firebase.auth.GoogleAuthProvider()));
+$('signout').onclick=()=>auth.signOut();
+
+auth.onAuthStateChanged(async u=>{
+  user=u;
+  if(!u){$('login').style.display='block';$('app').style.display='none';return}
+  ref=db.collection('users').doc(u.uid);
+  await run(async()=>{
+    const s=await ref.get();
+    if(!s.exists)await ref.set({name:u.displayName||'User',coins:0,life:0,streak:0,lastDay:0,last:{},created:Date.now()});
+    ref.onSnapshot(d=>{U=d.data();render()});
+  });
+  $('login').style.display='none';$('app').style.display='block';loadAds();
+});
+
+function render(){
+  if(!U)return;
+  $('hello').textContent='Hi, '+(U.name||'').split(' ')[0];
+  $('coins').textContent=(U.coins||0).toLocaleString();
+  $('rs').textContent='= ₹'+((U.coins||0)/RATE).toFixed(2);
+  $('tasks').innerHTML='';
+  TASKS.forEach(t=>{
+    const l=left(t),d=document.createElement('div');d.className='task';
+    d.innerHTML='<div><p>'+t.name+'</p><small>+'+t.coins+' coins · '+t.desc+'</small></div>';
+    const b=document.createElement('button');
+    b.textContent=l?fmt(l):(t.ad?'Watch':'Claim');b.disabled=!!l;
+    b.onclick=()=>t.ad?openAd(t):reward(t);
+    d.appendChild(b);$('tasks').appendChild(d);
+  });
+}
+setInterval(render,1000);
+
+function reward(t){
+  return run(async()=>{
+    if(left(t))return;
+    let n=Math.round(t.coins*mult()),up={last:{...U.last,[t.id]:Date.now()}};
+    if(t.id==='chk'){
+      const d=Math.floor(Date.now()/864e5),st=U.lastDay===d-1?(U.streak||0)+1:1;
+      n+=Math.min(st,7)*10;up.streak=st;up.lastDay=d;
+    }
+    up.coins=inc(n);up.life=inc(n);
+    await ref.update(up);toast('+'+n+' coins');
+  });
+}
+let timer;
+function openAd(t){
+  let n=t.secs||10;const c=$('claim');
+  $('modal').classList.add('on');c.disabled=true;c.textContent='Wait '+n+'s';
+  clearInterval(timer);
+  timer=setInterval(()=>{
+    n--;
+    if(n>0)c.textContent='Wait '+n+'s';
+    else{clearInterval(timer);c.disabled=false;c.textContent='Collect +'+t.coins+' coins'}
+  },1000);
+  c.onclick=()=>{$('modal').classList.remove('on');reward(t)};
+}
+$('meth').onchange=e=>{$('to').placeholder=e.target.value==='UPI'?'UPI ID, e.g. name@upi':'10-digit Paytm number'};
+$('wbtn').onclick=()=>run(async()=>{
+  const m=$('meth').value,to=$('to').value.trim();
+  if((U.coins||0)<MIN)return toast('Need '+MIN.toLocaleString()+' coins to withdraw');
+  const ok=m==='UPI'?/^[\w.\-]{2,}@[\w]{2,}$/.test(to):/^\d{10}$/.test(to);
+  if(!ok)return toast('Check your '+(m==='UPI'?'UPI ID':'Paytm number'));
+  const b=db.batch();
+  b.set(db.collection('withdrawals').doc(),{uid:user.uid,name:U.name,method:m,to,rs:U.coins/RATE,status:'pending',created:Date.now()});
+  b.update(ref,{coins:0});
+  await b.commit();toast('Withdrawal requested');
+});
+</script>
+</body>
+</html>
